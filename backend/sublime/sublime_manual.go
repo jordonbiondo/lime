@@ -5,12 +5,14 @@
 package sublime
 
 import (
-	"code.google.com/p/log4go"
 	"fmt"
-	"github.com/howeyc/fsnotify"
 	"github.com/limetext/gopy/lib"
 	"github.com/limetext/lime/backend"
+	"github.com/limetext/lime/backend/log"
+	"github.com/limetext/lime/backend/packages"
 	"github.com/limetext/lime/backend/render"
+	"github.com/limetext/lime/backend/util"
+	"github.com/limetext/lime/backend/watch"
 	"os"
 	"path"
 	"time"
@@ -23,7 +25,7 @@ func sublime_Console(tu *py.Tuple, kwargs *py.Dict) (py.Object, error) {
 	if i, err := tu.GetItem(0); err != nil {
 		return nil, err
 	} else {
-		log4go.Info("Python sez: %s", i)
+		log.Info("Python sez: %s", i)
 	}
 	return toPython(nil)
 }
@@ -54,7 +56,7 @@ func sublime_set_timeout(tu *py.Tuple, kwargs *py.Dict) (py.Object, error) {
 			defer l.Unlock()
 			defer pyarg.Decref()
 			if ret, err := pyarg.Base().CallFunctionObjArgs(); err != nil {
-				log4go.Debug("Error in callback: %v", err)
+				log.Debug("Error in callback: %v", err)
 			} else {
 				ret.Decref()
 			}
@@ -96,30 +98,30 @@ func init() {
 		constant int
 	}
 	constants := []constant{
-		{"OP_EQUAL", int(backend.OpEqual)},
-		{"OP_NOT_EQUAL", int(backend.OpNotEqual)},
-		{"OP_REGEX_MATCH", int(backend.OpRegexMatch)},
-		{"OP_NOT_REGEX_MATCH", int(backend.OpNotRegexMatch)},
-		{"OP_REGEX_CONTAINS", int(backend.OpRegexContains)},
-		{"OP_NOT_REGEX_CONTAINS", int(backend.OpNotRegexContains)},
+		{"OP_EQUAL", int(util.OpEqual)},
+		{"OP_NOT_EQUAL", int(util.OpNotEqual)},
+		{"OP_REGEX_MATCH", int(util.OpRegexMatch)},
+		{"OP_NOT_REGEX_MATCH", int(util.OpNotRegexMatch)},
+		{"OP_REGEX_CONTAINS", int(util.OpRegexContains)},
+		{"OP_NOT_REGEX_CONTAINS", int(util.OpNotRegexContains)},
 		{"INHIBIT_WORD_COMPLETIONS", 0},
 		{"INHIBIT_EXPLICIT_COMPLETIONS", 0},
-		{"LITERAL", 0},
-		{"IGNORECASE", 0},
-		{"CLASS_WORD_START", 1},
-		{"CLASS_WORD_END", 2},
-		{"CLASS_PUNCTUATION_START", 4},
-		{"CLASS_PUNCTUATION_END", 8},
-		{"CLASS_SUB_WORD_START", 16},
-		{"CLASS_SUB_WORD_END", 32},
-		{"CLASS_LINE_START", 64},
-		{"CLASS_LINE_END", 128},
-		{"CLASS_EMPTY_LINE", 256},
-		{"CLASS_MIDDLE_WORD", 512},
-		{"CLASS_WORD_START_WITH_PUNCTUATION", 1024},
-		{"CLASS_WORD_END_WITH_PUNCTUATION", 2048},
-		{"CLASS_OPENING_PARENTHESIS", 4096},
-		{"CLASS_CLOSING_PARENTHESIS", 8192},
+		{"LITERAL", int(backend.IGNORECASE)},
+		{"IGNORECASE", int(backend.LITERAL)},
+		{"CLASS_WORD_START", int(backend.CLASS_WORD_START)},
+		{"CLASS_WORD_END", int(backend.CLASS_WORD_END)},
+		{"CLASS_PUNCTUATION_START", int(backend.CLASS_PUNCTUATION_START)},
+		{"CLASS_PUNCTUATION_END", int(backend.CLASS_PUNCTUATION_END)},
+		{"CLASS_SUB_WORD_START", int(backend.CLASS_SUB_WORD_START)},
+		{"CLASS_SUB_WORD_END", int(backend.CLASS_SUB_WORD_END)},
+		{"CLASS_LINE_START", int(backend.CLASS_LINE_START)},
+		{"CLASS_LINE_END", int(backend.CLASS_LINE_END)},
+		{"CLASS_EMPTY_LINE", int(backend.CLASS_EMPTY_LINE)},
+		{"CLASS_MIDDLE_WORD", int(backend.CLASS_MIDDLE_WORD)},
+		{"CLASS_WORD_START_WITH_PUNCTUATION", int(backend.CLASS_WORD_START_WITH_PUNCTUATION)},
+		{"CLASS_WORD_END_WITH_PUNCTUATION", int(backend.CLASS_WORD_END_WITH_PUNCTUATION)},
+		{"CLASS_OPENING_PARENTHESIS", int(backend.CLASS_OPENING_PARENTHESIS)},
+		{"CLASS_CLOSING_PARENTHESIS", int(backend.CLASS_CLOSING_PARENTHESIS)},
 		{"DRAW_EMPTY", int(render.DRAW_EMPTY)},
 		{"HIDE_ON_MINIMAP", int(render.HIDE_ON_MINIMAP)},
 		{"DRAW_EMPTY_AS_OVERWRITE", int(render.DRAW_EMPTY_AS_OVERWRITE)},
@@ -146,67 +148,94 @@ func init() {
 			panic(err)
 		}
 	}
-	py.AddToPath("../../backend/packages/")
-	py.AddToPath("../../3rdparty/bundles/")
-	py.AddToPath("../../backend/sublime/")
+	py.AddToPath(backend.LIME_PACKAGES_PATH)
+	py.AddToPath(backend.LIME_USER_PACKAGES_PATH)
+	py.AddToPath(path.Join("..", "..", "backend", "sublime"))
 }
 
-func loadPlugin(p *backend.Plugin, m *py.Module) {
+// Wrapper for packages.Plugin and py.Module
+// merges Plugin.Reload and loadPlugin for watcher
+type plugin struct {
+	*packages.Plugin
+	m *py.Module
+}
+
+func newPlugin(pl *packages.Plugin, m *py.Module) (p *plugin) {
+	p = &plugin{pl, m}
+	p.FileChanged(p.Name())
+	if err := watcher.Watch(p.Name(), p); err != nil {
+		log.Errorf("Couldn't watch %s: %s", p.Name(), err)
+	}
+	p.loadKeyBindings()
+	p.loadSettings()
+	return
+}
+
+func (p *plugin) FileChanged(name string) {
+	p.Reload()
+	p.loadPlugin()
+}
+
+func (p *plugin) loadPlugin() {
 	fi := p.Get().([]os.FileInfo)
 	for _, f := range fi {
 		fn := f.Name()
 		s, err := py.NewUnicode(path.Base(p.Name()) + "." + fn[:len(fn)-3])
 		if err != nil {
-			log4go.Error(err)
+			log.Error(err)
 			return
 		}
-		if r, err := m.Base().CallMethodObjArgs("reload_plugin", s); err != nil {
-			log4go.Error(err)
+		if r, err := p.m.Base().CallMethodObjArgs("reload_plugin", s); err != nil {
+			log.Error(err)
 		} else if r != nil {
 			r.Decref()
 		}
 	}
-	p.LoadPackets()
-	watch(backend.NewWatchedPackage(p))
 }
 
-var (
-	watcher        *fsnotify.Watcher
-	watchedPlugins map[string]*backend.WatchedPackage
-)
-
-func watch(plugin *backend.WatchedPackage) {
-	log4go.Finest("Watch(%v)", plugin)
-	if err := watcher.Watch(plugin.Name()); err != nil {
-		log4go.Error("Could not watch plugin: %v", err)
+func (p *plugin) load(pkg *packages.Packet) {
+	if err := pkg.Load(); err != nil {
+		log.Errorf("Failed to load packet %s: %s", pkg.Name(), err)
 	} else {
-		watchedPlugins[plugin.Name()] = plugin
-	}
-}
-
-func unWatch(name string) {
-	if err := watcher.RemoveWatch(name); err != nil {
-		log4go.Error("Couldn't unwatch file: %v", err)
-	}
-	log4go.Finest("UnWatch(%s)", name)
-	delete(watchedPlugins, name)
-}
-
-func observePlugins(m *py.Module) {
-	for {
-		select {
-		case ev := <-watcher.Event:
-			if ev.IsModify() {
-				if p, exist := watchedPlugins[path.Dir(ev.Name)]; exist {
-					p.Reload()
-					loadPlugin(p.Package().(*backend.Plugin), m)
-				}
-			}
-		case err := <-watcher.Error:
-			log4go.Error("error:", err)
+		log.Info("Loaded %s", pkg.Name())
+		if err := watcher.Watch(pkg.Name(), pkg); err != nil {
+			log.Warn("Couldn't watch %s: %s", pkg.Name(), err)
 		}
 	}
 }
+
+func (p *plugin) loadKeyBindings() {
+	ed := backend.GetEditor()
+	tmp := ed.KeyBindings().Parent()
+
+	ed.KeyBindings().SetParent(p)
+	p.KeyBindings().Parent().KeyBindings().SetParent(tmp)
+
+	pt := path.Join(p.Name(), "Default.sublime-keymap")
+	p.load(packages.NewPacket(pt, p.KeyBindings().Parent().KeyBindings()))
+
+	pt = path.Join(p.Name(), "Default ("+ed.Plat()+").sublime-keymap")
+	p.load(packages.NewPacket(pt, p.KeyBindings()))
+}
+
+func (p *plugin) loadSettings() {
+	ed := backend.GetEditor()
+	tmp := ed.Settings().Parent()
+
+	ed.Settings().SetParent(p)
+	p.Settings().Parent().Settings().Parent().Settings().SetParent(tmp)
+
+	pt := path.Join(p.Name(), "Preferences.sublime-settings")
+	p.load(packages.NewPacket(pt, p.Settings().Parent().Settings().Parent().Settings()))
+
+	pt = path.Join(p.Name(), "Preferences ("+ed.Plat()+").sublime-settings")
+	p.load(packages.NewPacket(pt, p.Settings().Parent().Settings()))
+
+	pt = path.Join(backend.LIME_USER_PACKAGES_PATH, "Preferences.sublime-settings")
+	p.load(packages.NewPacket(pt, p.Settings()))
+}
+
+var watcher *watch.Watcher
 
 // TODO
 func Init() {
@@ -218,23 +247,21 @@ func Init() {
 	}
 	sys, err := py.Import("sys")
 	if err != nil {
-		log4go.Debug(err)
+		log.Debug(err)
 	} else {
 		defer sys.Decref()
 	}
 
-	watcher, err = fsnotify.NewWatcher()
-	if err != nil {
-		log4go.Error("Could not create watcher due to: %v", err)
+	if watcher, err = watch.NewWatcher(); err != nil {
+		log.Errorf("Couldn't create watcher: %s", err)
 	}
-	watchedPlugins = make(map[string]*backend.WatchedPackage)
-	go observePlugins(m)
 
-	plugins := backend.ScanPlugins(backend.LIME_USER_PACKAGES_PATH, ".py")
-	for _, p := range plugins {
-		// TODO: add all plugins after supporting all commands
-		if p.Name() == "../../3rdparty/bundles/Vintageous" {
-			loadPlugin(p, m)
-		}
-	}
+	// TODO: add all plugins after supporting all commands
+	// plugins := packages.ScanPlugins(backend.LIME_PACKAGES_PATH, ".py")
+	// for _, p := range plugins {
+	// 	newPlugin(p, m)
+	// }
+	newPlugin(packages.NewPlugin(path.Join(backend.LIME_PACKAGES_PATH, "Vintageous"), ".py"), m)
+
+	go watcher.Observe()
 }

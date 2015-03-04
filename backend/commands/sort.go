@@ -6,7 +6,7 @@ package commands
 
 import (
 	. "github.com/limetext/lime/backend"
-	. "github.com/quarnster/util/text"
+	. "github.com/limetext/text"
 	"sort"
 	"strings"
 )
@@ -184,8 +184,8 @@ func removeDuplicates(caseSensitive bool, xs []string) []string {
 }
 
 func init() {
-	register([]cmd{
-		{"sort_lines", &SortLinesCommand{}},
-		{"sort_selection", &SortSelectionCommand{}},
+	register([]Command{
+		&SortLinesCommand{},
+		&SortSelectionCommand{},
 	})
 }

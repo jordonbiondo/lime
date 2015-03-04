@@ -13,6 +13,10 @@ type (
 		DefaultCommand
 	}
 
+	CloseAllCommand struct {
+		DefaultCommand
+	}
+
 	CloseWindowCommand struct {
 		DefaultCommand
 	}
@@ -29,6 +33,11 @@ type (
 func (c *NewWindowCommand) Run(w *Window) error {
 	ed := GetEditor()
 	ed.SetActiveWindow(ed.NewWindow())
+	return nil
+}
+
+func (c *CloseAllCommand) Run(w *Window) error {
+	w.CloseAllViews()
 	return nil
 }
 
@@ -59,9 +68,13 @@ func (c *CloseWindowAppCommand) IsChecked() bool {
 }
 
 func init() {
-	register([]cmd{
-		{"new_window", &NewWindowCommand{}},
-		{"close_window", &CloseWindowCommand{}},
+	register([]Command{
+		&NewWindowCommand{},
+		&CloseAllCommand{},
+		&CloseWindowCommand{},
+	})
+
+	registerByName([]namedCmd{
 		{"new_window", &NewWindowAppCommand{}},
 		{"close_window", &CloseWindowAppCommand{}},
 	})

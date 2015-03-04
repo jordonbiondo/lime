@@ -5,11 +5,10 @@
 package backend
 
 import (
-	"code.google.com/p/log4go"
 	"fmt"
+	"github.com/limetext/lime/backend/log"
 	. "github.com/limetext/lime/backend/util"
 	"reflect"
-	"regexp"
 	"strings"
 	"time"
 )
@@ -17,6 +16,7 @@ import (
 type (
 	CommandHandler interface {
 		Unregister(string) error
+		RegisterWithDefault(cmd interface{}) error
 		Register(name string, cmd interface{}) error
 		// TODO(q): Do the commands need to be split in separate lists?
 		RunWindowCommand(*Window, string, Args) error
@@ -24,9 +24,9 @@ type (
 		RunApplicationCommand(string, Args) error
 	}
 
-	appcmd         map[string]interface{}
-	textcmd        map[string]interface{}
-	wndcmd         map[string]interface{}
+	appcmd         map[string]Command
+	textcmd        map[string]Command
+	wndcmd         map[string]Command
 	commandHandler struct {
 		ApplicationCommands appcmd
 		TextCommands        textcmd
@@ -36,22 +36,13 @@ type (
 	}
 )
 
-var casere = regexp.MustCompile(`([A-Z])`)
-
-func PascalCaseToSnakeCase(in string) string {
-	first := true
-	return casere.ReplaceAllStringFunc(in, func(in string) string {
-		if first {
-			first = false
-			return strings.ToLower(in)
-		}
-		return "_" + strings.ToLower(in)
-	})
-
+func DefaultName(cmd interface{}) string {
+	name := reflect.TypeOf(cmd).Elem().Name()
+	return PascalCaseToSnakeCase(strings.TrimSuffix(name, "Command"))
 }
 
 // If the cmd implements the CustomInit interface, its Init function
-// is called, otherwise the fields of th cmd's underlying struct type
+// is called, otherwise the fields of the cmd's underlying struct type
 // will be enumerated and match against the dictionary keys in args,
 // or if the key isn't provided in args, the Zero value will be used.
 func (ch *commandHandler) init(cmd interface{}, args Args) error {
@@ -70,6 +61,11 @@ func (ch *commandHandler) init(cmd interface{}, args Args) error {
 		fv, ok := args[key]
 		if !ok {
 			fv = reflect.Zero(ft.Type).Interface()
+			if def, ok := cmd.(CustomDefault); ok {
+				if val := def.Default(key); val != nil {
+					fv = val
+				}
+			}
 		}
 		if f.CanAddr() {
 			if f2, ok := f.Addr().Interface().(CustomSet); ok {
@@ -85,56 +81,56 @@ func (ch *commandHandler) init(cmd interface{}, args Args) error {
 }
 
 func (ch *commandHandler) RunWindowCommand(wnd *Window, name string, args Args) error {
-	lvl := log4go.FINE
+	lvl := log.FINE
 	p := Prof.Enter("wc")
 	defer p.Exit()
 	if ch.log {
-		lvl = log4go.DEBUG
+		lvl = log.DEBUG
 	}
-	log4go.Logf(lvl, "Running window command: %s %v", name, args)
+	log.Logf(lvl, "Running window command: %s %v", name, args)
 	t := time.Now()
 	if c, ok := ch.WindowCommands[name].(WindowCommand); c != nil && ok {
 		if err := ch.init(c, args); err != nil && ch.verbose {
-			log4go.Debug("Command initialization failed: %s", err)
+			log.Debug("Command initialization failed: %s", err)
 			return err
 		} else if err := wnd.runCommand(c, name); err != nil {
-			log4go.Logf(lvl+1, "Command execution failed: %s", err)
+			log.Logf(lvl+1, "Command execution failed: %s", err)
 			return err
 		} else {
-			log4go.Logf(lvl, "Ran Window command: %s %s", name, time.Since(t))
+			log.Logf(lvl, "Ran Window command: %s %s", name, time.Since(t))
 		}
 	} else {
-		log4go.Logf(lvl, "No such window command: %s", name)
+		log.Logf(lvl, "No such window command: %s", name)
 	}
 	return nil
 }
 
 func (ch *commandHandler) RunTextCommand(view *View, name string, args Args) error {
-	lvl := log4go.FINE
+	lvl := log.FINE
 	p := Prof.Enter("tc")
 	defer p.Exit()
 	t := time.Now()
 	if ch.log {
-		lvl = log4go.DEBUG
+		lvl = log.DEBUG
 	}
-	log4go.Logf(lvl, "Running text command: %s %v", name, args)
+	log.Logf(lvl, "Running text command: %s %v", name, args)
 	if c, ok := ch.TextCommands[name].(TextCommand); c != nil && ok {
 		if err := ch.init(c, args); err != nil && ch.verbose {
-			log4go.Debug("Command initialization failed: %s", err)
+			log.Debug("Command initialization failed: %s", err)
 			return err
 		} else if err := view.runCommand(c, name); err != nil {
-			log4go.Logf(lvl, "Command execution failed: %s", err)
+			log.Logf(lvl, "Command execution failed: %s", err)
 			return err
 		}
 	} else if w := view.Window(); w != nil {
 		if c, ok := ch.WindowCommands[name].(WindowCommand); c != nil && ok {
 			if err := w.runCommand(c, name); err != nil {
-				log4go.Logf(lvl, "Command execution failed: %s", err)
+				log.Logf(lvl, "Command execution failed: %s", err)
 				return err
 			}
 		}
 	}
-	log4go.Logf(lvl, "Ran text command: %s %s", name, time.Since(t))
+	log.Logf(lvl, "Ran text command: %s %s", name, time.Since(t))
 	return nil
 }
 
@@ -142,16 +138,16 @@ func (ch *commandHandler) RunApplicationCommand(name string, args Args) error {
 	p := Prof.Enter("ac")
 	defer p.Exit()
 	if ch.log {
-		log4go.Info("Running application command: %s %v", name, args)
+		log.Info("Running application command: %s %v", name, args)
 	} else {
-		log4go.Fine("Running application command: %s %v", name, args)
+		log.Fine("Running application command: %s %v", name, args)
 	}
 	if c, ok := ch.ApplicationCommands[name].(ApplicationCommand); c != nil && ok {
 		if err := ch.init(c, args); err != nil && ch.verbose {
-			log4go.Debug("Command initialization failed: %s", err)
+			log.Debug("Command initialization failed: %s", err)
 			return err
 		} else if err := c.Run(); err != nil && ch.verbose {
-			log4go.Debug("Command execution failed: %s", err)
+			log.Debug("Command execution failed: %s", err)
 			return err
 		}
 	}
@@ -171,9 +167,13 @@ func (ch *commandHandler) Unregister(name string) error {
 	return nil
 }
 
+func (ch *commandHandler) RegisterWithDefault(cmd interface{}) error {
+	return ch.Register(DefaultName(cmd), cmd)
+}
+
 func (ch *commandHandler) Register(name string, cmd interface{}) error {
 	var r = false
-	log4go.Finest("Want to register %s", name)
+	log.Finest("Want to register %s", name)
 	if ac, ok := cmd.(ApplicationCommand); ok {
 		if _, ok := ch.ApplicationCommands[name]; ok {
 			return fmt.Errorf("%s is already a registered command", name)
@@ -198,7 +198,7 @@ func (ch *commandHandler) Register(name string, cmd interface{}) error {
 	if !r {
 		return fmt.Errorf("Command wasn't registered in any list: %s", name)
 	} else if ch.verbose {
-		log4go.Finest("Successfully registered command %s", name)
+		log.Finest("Successfully registered command %s", name)
 	}
 	return nil
 }

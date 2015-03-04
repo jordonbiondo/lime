@@ -6,7 +6,7 @@ package commands
 
 import (
 	. "github.com/limetext/lime/backend"
-	. "github.com/quarnster/util/text"
+	. "github.com/limetext/text"
 	"strings"
 )
 
@@ -96,8 +96,8 @@ func getTabSize(v *View) int {
 }
 
 func init() {
-	register([]cmd{
-		{"indent", &IndentCommand{}},
-		{"unindent", &UnindentCommand{}},
+	register([]Command{
+		&IndentCommand{},
+		&UnindentCommand{},
 	})
 }

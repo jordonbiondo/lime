@@ -39,32 +39,16 @@ func (c *DummyTextCommand) Run(v *View, e *Edit) error {
 	return fmt.Errorf("Ran")
 }
 
-func TestPascalCaseToSnakeCase(t *testing.T) {
-	tests := []struct {
-		in  string
-		out string
-	}{
-		{
-			"TestString",
-			"test_string",
-		},
-		{
-			"Teststring",
-			"teststring",
-		},
-	}
+func TestDefaultName(t *testing.T) {
+	n := DefaultName(&DummyApplicationCommand{})
 
-	for i, test := range tests {
-		out := PascalCaseToSnakeCase(test.in)
-
-		if out != test.out {
-			t.Errorf("Test %d: Expected %s, but got %s", i, test.out, out)
-		}
+	if n != "dummy_application" {
+		t.Errorf("Expected %s, but got %s", "dummy_application", n)
 	}
 }
 
 func TestRegisterAndRunApplicationCommand(t *testing.T) {
-	name := "app_test_command"
+	name := "app_test"
 	ac := DummyApplicationCommand{}
 	ch := GetEditor().CommandHandler()
 
@@ -84,11 +68,11 @@ func TestRegisterAndRunApplicationCommand(t *testing.T) {
 }
 
 func TestRegisterAndRunWindowCommand(t *testing.T) {
-	var w Window
+	ed := GetEditor()
 
-	name := "wnd_test_command"
+	name := "wnd_test"
 	wc := DummyWindowCommand{}
-	ch := GetEditor().CommandHandler()
+	ch := ed.CommandHandler()
 
 	err := ch.Register(name, &wc)
 
@@ -96,7 +80,10 @@ func TestRegisterAndRunWindowCommand(t *testing.T) {
 		t.Errorf("Got error while registering: %s", err)
 	}
 
-	err = ch.RunWindowCommand(&w, name, Args{})
+	w := ed.NewWindow()
+	defer w.Close()
+
+	err = ch.RunWindowCommand(w, name, Args{})
 
 	if err == nil {
 		t.Errorf("Expected %s to run, but it didn't", name)
@@ -108,7 +95,7 @@ func TestRegisterAndRunWindowCommand(t *testing.T) {
 func TestRegisterAndRunTextCommand(t *testing.T) {
 	ed := GetEditor()
 
-	name := "text_test_command"
+	name := "text_test"
 	tc := DummyTextCommand{}
 	ch := ed.CommandHandler()
 
@@ -118,7 +105,12 @@ func TestRegisterAndRunTextCommand(t *testing.T) {
 		t.Errorf("Got error while registering: %s", err)
 	}
 
-	v := ed.NewWindow().NewFile()
+	w := ed.NewWindow()
+	defer w.Close()
+
+	v := w.NewFile()
+	defer v.Close()
+
 	err = ch.RunTextCommand(v, name, Args{})
 
 	if err == nil {
@@ -128,8 +120,28 @@ func TestRegisterAndRunTextCommand(t *testing.T) {
 	}
 }
 
+func TestRegisterAndRunDefaultNamedCommand(t *testing.T) {
+	ac := DummyApplicationCommand{}
+	ch := GetEditor().CommandHandler()
+
+	err := ch.RegisterWithDefault(&ac)
+
+	if err != nil {
+		t.Errorf("Got error while registering: %s", err)
+	}
+
+	name := DefaultName(&ac)
+	err = ch.RunApplicationCommand(name, Args{})
+
+	if err == nil {
+		t.Errorf("Expected %s to run, but it didn't", name)
+	} else if err.Error() != "Ran" {
+		t.Errorf("Expected %s to run, but it got an error: %v", name, err)
+	}
+}
+
 func TestUnregisterAndRunApplicationCommand(t *testing.T) {
-	name := "app_test_command_unregister"
+	name := "app_test_unregister"
 	ac := DummyApplicationCommand{}
 	ch := GetEditor().CommandHandler()
 
@@ -151,11 +163,11 @@ func TestUnregisterAndRunApplicationCommand(t *testing.T) {
 }
 
 func TestUnregisterAndRunWindowCommand(t *testing.T) {
-	var w Window
+	ed := GetEditor()
 
-	name := "wnd_test_command_unregister"
+	name := "wnd_test_unregister"
 	wc := DummyWindowCommand{}
-	ch := GetEditor().CommandHandler()
+	ch := ed.CommandHandler()
 
 	_ = ch.Register(name, &wc)
 	err := ch.Unregister(name)
@@ -164,7 +176,10 @@ func TestUnregisterAndRunWindowCommand(t *testing.T) {
 		t.Errorf("Got error while unregistering: %s", err)
 	}
 
-	err = ch.RunWindowCommand(&w, name, Args{})
+	w := ed.NewWindow()
+	defer w.Close()
+
+	err = ch.RunWindowCommand(w, name, Args{})
 
 	if err != nil {
 		t.Errorf("Expected %s not to run, but it did", name)
@@ -177,7 +192,7 @@ func TestUnregisterAndRunWindowCommand(t *testing.T) {
 func TestUnregisterAndRunTextCommand(t *testing.T) {
 	ed := GetEditor()
 
-	name := "text_test_command"
+	name := "text_test"
 	tc := DummyTextCommand{}
 	ch := ed.CommandHandler()
 
@@ -188,7 +203,12 @@ func TestUnregisterAndRunTextCommand(t *testing.T) {
 		t.Errorf("Got error while unregistering: %s", err)
 	}
 
-	v := ed.NewWindow().NewFile()
+	w := ed.NewWindow()
+	defer w.Close()
+
+	v := w.NewFile()
+	defer v.Close()
+
 	err = ch.RunTextCommand(v, name, Args{})
 
 	if err != nil {

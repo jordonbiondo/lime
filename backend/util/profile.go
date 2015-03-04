@@ -12,13 +12,13 @@ import (
 )
 
 type (
-	Profileentry struct {
+	ProfileEntry struct {
 		Calls   int
 		Tottime time.Duration
 	}
 	Profiler struct {
 		mutex sync.Mutex
-		data  map[string]Profileentry
+		data  map[string]ProfileEntry
 	}
 	ProfToken struct {
 		Name  string
@@ -26,7 +26,7 @@ type (
 	}
 	ProfileResult struct {
 		Name string
-		Profileentry
+		ProfileEntry
 	}
 	prsorter struct {
 		data []ProfileResult
@@ -34,7 +34,7 @@ type (
 	}
 )
 
-var Prof = Profiler{data: make(map[string]Profileentry)}
+var Prof = Profiler{data: make(map[string]ProfileEntry)}
 
 func (p *Profiler) Enter(name string) ProfToken {
 	return ProfToken{name, time.Now()}
@@ -86,14 +86,16 @@ func (p *Profiler) Results() (ret []ProfileResult) {
 	}
 	return ret
 }
+
 func (v *ProfileResult) Avg() time.Duration {
 	return v.Tottime / time.Duration(v.Calls)
 }
+
 func (v ProfileResult) String() string {
 	return fmt.Sprintf("%64s %6d, %20s, %20s", v.Name, v.Calls, v.Tottime, v.Avg())
 }
 
-func (p Profiler) String() (ret string) {
+func (p *Profiler) String() (ret string) {
 	pr := p.SortByAvgTime()
 	ret = fmt.Sprintf("%64s %6s, %20s, %20s\n", "Name", "Calls", "Total Time", "Average")
 	for _, v := range pr {

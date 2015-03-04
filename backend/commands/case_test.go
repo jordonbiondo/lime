@@ -6,22 +6,28 @@ package commands
 
 import (
 	. "github.com/limetext/lime/backend"
-	. "github.com/quarnster/util/text"
+	. "github.com/limetext/text"
 	"testing"
 )
 
-type CaseTest struct {
+type caseTest struct {
 	in_region []Region
 	in        string
 	exp       string
 }
 
-func RunCaseTest(command string, testsuite *[]CaseTest, t *testing.T) {
+func runCaseTest(command string, testsuite *[]caseTest, t *testing.T) {
 	ed := GetEditor()
 	w := ed.NewWindow()
+	defer w.Close()
 
 	for i, test := range *testsuite {
 		v := w.NewFile()
+		defer func() {
+			v.SetScratch(true)
+			v.Close()
+		}()
+
 		e := v.BeginEdit()
 		v.Insert(e, 0, test.in)
 		v.EndEdit(e)
@@ -41,69 +47,81 @@ func RunCaseTest(command string, testsuite *[]CaseTest, t *testing.T) {
 }
 
 func TestTitleCase(t *testing.T) {
-	tests := []CaseTest{
+	tests := []caseTest{
 		/*single selection*/
 		{
 			// Please note the bizarre  capitalization of the first L in he'Ll...  This is due to a bug in go's strings
 			// library.  I'm going to try to get them to fix it...  If not, maybe we'll have
 			// to write our own Title Casing function.
 			[]Region{{24, 51}},
+
 			"Give a man a match, and he'll be warm for a minute, but set him on fire, and he'll be warm for the rest of his life.",
 			"Give a man a match, and He'Ll Be Warm For A Minute, but set him on fire, and he'll be warm for the rest of his life.",
 		},
 		/*multiple selection*/
 		{
 			[]Region{{0, 17}, {52, 71}},
+
 			"Give a man a match, and he'll be warm for a minute, but set him on fire, and he'll be warm for the rest of his life.",
 			"Give A Man A Match, and he'll be warm for a minute, But Set Him On Fire, and he'll be warm for the rest of his life.",
 		},
-
 		/*no selection*/
 		{
 			nil,
+
 			"Give a man a match, and he'll be warm for a minute, but set him on fire, and he'll be warm for the rest of his life.",
 			"Give a man a match, and he'll be warm for a minute, but set him on fire, and he'll be warm for the rest of his life.",
 		},
 		/*unicode*/
 		{
 			[]Region{{0, 12}},
+
 			"ничего себе!",
 			"Ничего Себе!",
 		},
 		/*asian characters*/
-
 		{
 			[]Region{{0, 9}},
+
 			"千里之行﹐始于足下",
 			"千里之行﹐始于足下",
 		},
 	}
-	RunCaseTest("title_case", &tests, t)
 
+	runCaseTest("title_case", &tests, t)
 }
 
 func TestSwapCase(t *testing.T) {
-	tests := []CaseTest{
+	tests := []caseTest{
+		{
+			[]Region{{0, 0}},
+
+			"",
+			"",
+		},
 		{
 			[]Region{{0, 13}},
+
 			"Hello, World!",
 			"hELLO, wORLD!",
 		},
 		{
 			[]Region{{0, 11}},
+
 			"ПрИвЕт, МиР",
 			"пРиВеТ, мИр",
 		},
 	}
-	RunCaseTest("swap_case", &tests, t)
+
+	runCaseTest("swap_case", &tests, t)
 }
 
 func TestUpperCase(t *testing.T) {
-	tests := []CaseTest{
+	tests := []caseTest{
 		/*single selection*/
-
 		{
 			[]Region{{0, 76}},
+
 			"Try not to become a man of success, but rather try to become a man of value.",
 			"TRY NOT TO BECOME A MAN OF SUCCESS, BUT RATHER TRY TO BECOME A MAN OF VALUE.",
 		},
@@ -122,25 +140,26 @@ func TestUpperCase(t *testing.T) {
 			"Try not to become a man of success, but rather try to become a man of value.",
 		},
 		/*unicode*/
-
 		{
 			[]Region{{0, 74}},
+
 			"чем больше законов и постановлений, тем больше разбойников и преступлений!",
 			"ЧЕМ БОЛЬШЕ ЗАКОНОВ И ПОСТАНОВЛЕНИЙ, ТЕМ БОЛЬШЕ РАЗБОЙНИКОВ И ПРЕСТУПЛЕНИЙ!",
 		},
 		/*asian characters*/
-
 		{
 			[]Region{{0, 9}},
+
 			"千里之行﹐始于足下",
 			"千里之行﹐始于足下",
 		},
 	}
-	RunCaseTest("upper_case", &tests, t)
+
+	runCaseTest("upper_case", &tests, t)
 }
 
 func TestLowerCase(t *testing.T) {
-	tests := []CaseTest{
+	tests := []caseTest{
 		/*single selection*/
 		{
 			[]Region{{0, 76}},
@@ -170,12 +189,13 @@ func TestLowerCase(t *testing.T) {
 			"чем больше законов и постановлений, тем больше разбойников и преступлений!",
 		},
 		/*asian characters*/
-
 		{
 			[]Region{{0, 9}},
+
 			"千里之行﹐始于足下",
 			"千里之行﹐始于足下",
 		},
 	}
-	RunCaseTest("lower_case", &tests, t)
+
+	runCaseTest("lower_case", &tests, t)
 }
